@@ -1,7 +1,7 @@
 // - comments, explanation
 <> - console command here 
 {} - code in jamfiles
-"" - rule, using, jam features
+"" - rule, using, jam feature
 
 // --------------------------------------------------------
 // 1. Hello world
