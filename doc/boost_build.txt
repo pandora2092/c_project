@@ -1,0 +1,695 @@
+// - comments, explanation
+<> - console command here 
+{} - code in jamfiles
+"" - rule, using, jam features
+
+// --------------------------------------------------------
+// 1. Hello world
+// --------------------------------------------------------
+[ exe hello : hello.cpp ; ]
+<  
+    b2 debug release; 
+    b2 --clean debug release; 
+    b2 hello2; 
+    b2 --clean hello2 
+>
+
+// --------------------------------------------------------
+// 2. Properties, representation of configured product
+// --------------------------------------------------------
+"feature-name=feature-value"
+<
+    b2 release inlining=off debug-symbols=on
+    b2 variant=release inlining=off debug-symbols=on
+>
+"rule name ( target : sources + : requirements * : default-build * : usage-requirements * )"
+// 1) exe       - rule name 
+// 2) hello     - target
+// 3) hello.cpp - sources
+// 4) <include>boost <threading>multi - requirements
+{
+    exe hello : hello.cpp : <include>boost <threading>multi ;
+}
+// !! target requirements override (or augment for free features) build request from console
+// !! <include> feature is relative to location Jamroot
+
+// For example, standart compiling .cpp file properties:
+//
+//      <asynch-exceptions>off <debug-symbols>on <exception-handling>on <extern-c-nothrow>off 
+//      <hardcode-dll-paths>true <host-os>linux <inlining>off <install-dependencies>off 
+//      <link>shared <optimization>off <os>LINUX <pch>on <profiling>off <rtti>on 
+//      <runtime-debugging>on <runtime-link>shared <stdlib>native <strip>off <suppress-import-lib>false 
+//      <symlink-location>project-relative <target-os>linux <threading>single 
+//      <toolset-gcc:version>4.9.2 <toolset>gcc <user-interface>console <variant>debug 
+//      <warnings-as-errors>off <warnings>on
+
+// --------------------------------------------------------
+// 3. Project attributes, for all project
+// --------------------------------------------------------
+{
+    project : requirements <include>/home/ghost/Work/boost <threading>multi : : usage-requirements <include>. ;
+    
+    exe hello  : hello.cpp ;
+    exe hello2 : hello.cpp ;
+}
+// !! Projects inherit all attributes (such as requirements) from their parents (combined)
+
+// by default if u invoke b2 without targets, current project will be built, subproject will be ignored
+// to build subproject u should explicitly indicate it as:
+
+"top/"
+"  |"
+"  +-- Jamroot"
+"  |"
+"  +-- app/"
+"  |    |
+"  |    +-- Jamfile"
+"  |    `-- app.cpp"
+"  |"
+"  `-- util/"
+"       |"
+"       +-- foo/"
+"       .    |"
+"       .    +-- Jamfile"
+"       .    `-- bar.cpp"
+
+{
+    build-project app ;
+}
+
+// --------------------------------------------------------
+// 4. Dependant targets
+// --------------------------------------------------------
+// in ./top/util/foo/Jamfile
+{ lib bar : bar.cpp ; }
+// in ./top/app/Jamfile
+{
+    project : requirements <library>/boost/filesystem//fs ;
+
+    use-project /foo-prj : util/foo ;
+    
+    exe app : app.cpp /foo-prj//bar ; 
+}
+// !! project and all subprojects use boost filesystem (inherit)
+// !! u can use use-project in Jamroot, all project can use project alias without rename
+// !! target bar is dependency of target app, double slash (//) means reference to target
+
+< b2 app optimization=full define=USE_ASM >
+"optimization - propagated feature, define is not"
+// !! foo//bar will be built with full optimization but without USE_ASM define
+
+// --------------------------------------------------------
+// 5. Libraries
+// --------------------------------------------------------
+// default is shared link
+< b2 link=static >
+
+// only can link with static helpers, bar target
+{ 
+    lib l : l.cpp : <link>static
+    
+    exe important : main.cpp helpers/<link>static ;
+    exe e1 : e1.cpp /other_project//bar/<link>static ;
+    exe e10 : e10.cpp /other_project//bar/<link>static ;
+    
+    alias foo : /other_project//bar/<link>static ;
+    exe e1 : e1.cpp foo ;
+    exe e10 : e10.cpp foo ;
+}
+// TODO need to check difference between alias & use-project 
+// alias is used to rename to target reference and possibly change the properties
+
+// --------------------------------------------------------
+// 6. Conditions and alternatives
+// --------------------------------------------------------
+{
+    lib network : network.cpp : 
+        <link>shared:<define>NETWORK_LIB_SHARED 
+        <variant>release:<define>EXTRA_FAST ;
+        
+    lib demangler : dummy_demangler.cpp ;
+    lib demangler : demangler_gcc.cpp : <toolset>gcc ;
+    lib demangler : demangler_msvc.cpp : <toolset>msvc ;
+}
+
+// --------------------------------------------------------
+// 7. Prebuild targets
+// --------------------------------------------------------
+// in util/lib2/Jamfile
+{
+    lib lib2 : : <file>lib2_release.a <variant>release ;
+    lib lib2 : : <file>lib2_debug.a   <variant>debug ;
+}
+// in util/app/Jamfile
+{ exe app : app.cpp ../util/lib2//lib2 ; }
+
+// system libs, gcc -> -lpython22 or -lpython22_d appear depends on variant feature
+{ 
+    lib pythonlib : : <name>python22   <variant>release ;
+    lib pythonlib : : <name>python22_d <variant>debug ;
+}
+
+// --------------------------------------------------------
+// 8. Configure
+// --------------------------------------------------------
+"user-config.jam and site-config.jam define available toolsets"
+// files are searched in:
+// Linux: 
+//     site-config.jam -> $HOME $BOOST_BUILD_PATH /etc
+//     user-config.jam -> $HOME $BOOST_BUILD_PATH
+// Windows:
+//     site-config.jam -> %HOMEDRIVE%%HOMEPATH% %HOME% %BOOST_BUILD_PATH% %SystemRoot% 
+//     user-config.jam -> %HOMEDRIVE%%HOMEPATH% %HOME% %BOOST_BUILD_PATH% 
+// syntax:
+//     using tool-name : ... ;
+//     using gcc ;
+//     using gcc : : g++-3.2 ;
+//     using msvc : : "Z:/Programs/Microsoft Visual Studio/vc98/bin/cl" ;
+//     using msvc : : echo Compiling && foo/bar/baz/cl ;
+//     using gcc : 3.3 ;
+//     using gcc : 3.4 : g++-3.4 ;
+//     using gcc : 3.2 : g++-3.2 ;
+// 4 options: cflags, cxxflags, compileflags, linkflags
+//     using gcc : 3.4 : : <compileflags>-m64 <linkflags>-m64 ;
+
+// --------------------------------------------------------
+// 9.  Boost build invocation
+// --------------------------------------------------------
+<
+    b2
+    b2 lib1 subproject//lib2
+    b2 toolset=gcc variant=debug optimization=space
+>
+// options:
+//     --clean --clean-all --build-dir 
+//     --debug-configuration --debug-building --debug-generators 
+//     --dump-tests (except unit-test)        // format: boost-test(test-type) path : sources
+// 
+//     -a      // all files to be rebuilt
+//     -n      // only print commands
+//     -j N    // N commands in parallel
+//     -d0     // supress all informational messages
+//     -d N    // enable cummulative debugging levels from 1 to 13
+//     -d +N   // enable debug level N
+//     -o      // write the updating actions to specified file instead running them
+//     -s var=value     // set global variable overriding variable from environment
+
+// --------------------------------------------------------
+// 10. Base properties
+// --------------------------------------------------------
+// 1. variant: debug,release
+// 2. link: shared,static
+// 3. address-model: 32,64
+// 4. toolset: Depends on configuration(gcc msvc)
+// 5. include: (Arbitrary string)
+// 6. define: (Arbitrary string)
+// 7. cxxflags: (Arbitrary string)
+// 8. cflags: (Arbitrary string)
+// 9. linkflags: (Arbitrary string)
+// 10.runtime-link: shared,static
+
+// will be invoked 4 times for fixed properties
+< 
+    b2 link=static link=shared threading=single threading=multi 
+    b2 link=static,shared threading=single,multi
+>
+// !! The comma has this special meaning only if the feature has a fixed set of values
+
+// --------------------------------------------------------
+// 11. Requirements
+// --------------------------------------------------------
+{
+    exe hello : hello.cpp : <include>/opt/boost <define>MY_DEBUG ;
+    lib util : util.cpp : <link>static ;
+    obj main : main.cpp : <optimization>off ;
+}
+
+// conditional requirements
+{
+    lib network : network.cpp : <link>shared:<define>NETWORK_LIB_SHARED 
+                                <variant>release:<define>EXTRA_FAST ;
+}
+
+// can be use for checking properties, requirements
+{
+    lib network : network.cpp : <conditional>@add-or-check ;
+
+    rule add-or-check ( properties * )
+    {
+        local result ;
+        if <toolset>gcc <optimization>speed in $(properties)
+        {
+            result += <define>USE_INLINE_ASSEMBLER ;
+        }
+        return $(result) ;
+    }
+}
+
+// cause a target to completely ignore a specific !!PROJECT requirement,
+// but can be explicitly requested by user from command line
+// can be applied to free and ordinary properties
+{ exe main : main.cpp : -<define>UNNECESSARY_DEFINE ; }
+{
+    project test : requirements <threading>multi ;
+
+    exe test1 : test1.cpp ;
+    exe test2 : test2.cpp : <threading>single ;
+    exe test3 : test3.cpp : -<threading>multi ;
+}
+// !! Note that the removal of requirements is completely textual: 
+// you need to specify exactly the same property to remove it
+
+// if target should be built explicitly only:
+{ explicit install_programs ; }
+
+// --------------------------------------------------------
+// 12. Projects
+// --------------------------------------------------------
+// project attributes:
+//     1. source-location 
+//     2. requirements
+//     3. default-build
+//     4. build-dir 
+
+{ project tennis : requirements <threading>multi : default-build release ; }
+// !! to refer to a project u must start project id with slash
+// !! subproject inherits attributes, constants and rules from its parent
+
+// --------------------------------------------------------
+// 13. Libraries
+// --------------------------------------------------------
+{ lib helpers : helpers.cpp ; }
+{
+    lib z : : <name>z <search>/home/ghost ;
+    lib compress : : <file>/opt/libs/compress.a ;
+}
+// !! both libs can be found in <search>/pool/release (if b exist in /pool/release) or conversely
+// all search paths will be passed to the linker
+{
+    lib a : : <name>a <search>/pool/release ;
+    lib b : : <name>b <search>/pool/debug ;
+}
+// same effects, u can omit lib name
+{
+    lib z ;            // lib z : : <name>z ;
+    lib gui db ;       // lib gui : : <name>gui ; lib db : : <name>db ;
+}
+// dependency
+{
+    lib z ;
+    lib png : z : <name>png ;
+}
+// TODO: try it for projects in different directories
+// usage requirements
+{
+    lib helpers : helpers.cpp : : : <include>. ;
+}
+
+// --------------------------------------------------------
+// 14. Alias
+// --------------------------------------------------------
+// alternative name to a group of targets 
+{ alias core : im reader writer ; }
+// change build target properties ;
+{ alias threads : /boost/thread//boost_thread : <link>static ; }
+// change usage-requirements
+{ alias header_only_library : : : :  <include>/usr/include/header_only_library ; }
+// propagated usage-requirements
+{
+    lib library1 : library1.cpp : : : <include>/library/include1 ;
+    lib library2 : library2.cpp : : : <include>/library/include2 ;
+    alias static_libraries : library1 library2 : <link>static ;
+    exe main : main.cpp static_libraries ;
+}
+
+// --------------------------------------------------------
+// 14. Install
+// --------------------------------------------------------
+{ install dist : hello helpers ; }
+{ install dist : hello helpers : <location>/usr/bin ; }
+{
+    import os ;
+    local DIST = [ os.environ INSTALL-PATH ] ;
+    
+    install dist2 : hello helpers : <location>$(DIST) ;
+    install dist  : hello helpers : <variant>release:<location>dist/release
+                                    <variant>debug:<location>dist/debug ;
+}
+// install with all dependencies
+{
+    install dist : hello : <install-dependencies>on 
+            <install-type>EXE <install-type>LIB ;
+}
+// preserving directory hierarchy
+// /tmp/b/c.h will be created. 
+{
+    install headers : a/b/c.h : <location>/tmp <install-source-root>a ;
+}
+
+// --------------------------------------------------------
+// 14. Testing
+// --------------------------------------------------------
+// unit-test rule, compile and link it
+// for unit-test rule manifest is created with name "target-name.passed"
+// oprtions:
+//     1. <testing.arg>
+//     2. <testing.input-file>     
+//     3. <testing.launcher> 
+{ 
+    unit-test helpers_test : helpers_test.cpp helpers ; 
+    unit-test helpers_test : helpers_test.cpp helpers : <testing.arg>"--foo bar" ;
+    unit-test helpers_test : helpers_test.cpp helpers : <testing.launcher>valgrind ;
+}
+// command: valgrind bin/$toolset/debug/helpers_test
+
+"rule compile ( sources : requirements * : target-name ? )"
+"rule compile-fail ( sources : requirements * : target-name ? )"
+"rule link ( sources + : requirements * : target-name ? )"
+"rule link-fail ( sources + : requirements * : target-name ? )"
+"rule run ( sources + : args * : input-files * : requirements * : target-name ? : default-build * )"
+"rule run-fail ( sources + : args * : input-files * : requirements * : target-name ? : default-build * )"
+// for that rules manifest is created with name "target-name.test"
+// aside, run rules also capture program output and store it in "target-name.output"
+// <preserve-test-targets>on,off -> if off executables will be removed after testing, by default -> on
+
+// test-info - description of the test, is displayed as part of the --dump-tests command-line option
+
+// --------------------------------------------------------
+// 15. Custom commands
+// --------------------------------------------------------
+// custom make rule: creating one file from sources
+{
+    make file.out : file1.in file2.in : @in2out ;
+
+    actions in2out
+    {
+        in2out $(<) $(>)
+    }
+}
+
+// custom rule: do any actions without creating a file
+{ 
+    notfile echo_something : @echo ;
+    actions echo
+    {
+        echo "something"
+    }
+}
+
+// --------------------------------------------------------
+// 15. Precompiled headers
+// --------------------------------------------------------
+// !! The inclusion of the precompiled header must be the first 
+// thing in a source file, before any code or preprocessor directives
+// !! On the gcc compiler, the name of the header being precompiled 
+// must be equal to the name of the cpp-pch target.
+{
+    cpp-pch pch : pch.hpp ;
+    exe main : main.cpp pch ;
+}
+
+// --------------------------------------------------------
+// 16. Generated headers 
+// --------------------------------------------------------
+{
+    make parser : parser.y ;
+    exe app : app.cpp : <implicit-dependency>parser ;
+}
+
+// --------------------------------------------------------
+// 17. Cross-compilation
+// --------------------------------------------------------
+// in user-config.jam 
+{ using gcc : arm : arm-none-linux-gnueabi-g++ ; }
+<
+    b2 toolset=gcc-arm
+    b2 toolset=gcc-arm target-os=linux
+    b2 toolset=gcc-mingw target-os=windows
+>
+
+// --------------------------------------------------------
+// 18. Select target properties
+// --------------------------------------------------------
+"rule check-target-builds ( target message ? : true-properties * : false-properties * )"
+{
+    exe app : app.cpp : [ check-target-builds has_foo "System has foo" : <library>foo : <define>FOO_MISSING=1
+    alias foobar : : : : [ check-target-builds has_foo "System has foo" : <library>foo : <library>bar ] ;
+}
+
+// --------------------------------------------------------
+// 19. Features
+// --------------------------------------------------------
+// attributes:
+//     1. incidental - no affect to product at all (Ex.: warnings on off)
+//     2. propagated - propagated to dependecies
+//     3. free - can have arbitrary values
+//     4. optional - is not require to appear in build specification,
+//         if feature is not optional, get first value as default
+//     5. symmetric - generate special feature directory for build
+//     6. path - if build system is invoked from another directory
+//         feature will be retranslated 
+//     7. implicit - feature value identify a feature (Ex.: gcc -> <toolset>gcc)
+//     8. composite - group of properties, are recursively expanded
+//     9. dependency - value of it is a reference to a target (treated as additional dependency)
+
+// bultin features:
+//
+//            NAME                 VALUES             ATTRIBUTE
+//
+//     toolset              :                   : implicit propagated symmetric ;
+//     stdlib               : native            : propagated composite ;
+//     link                 : shared static     : propagated ;
+//     runtime-link         : shared static     : propagated ;
+//     runtime-debugging    : on off            : propagated ;
+//     optimization         : off speed space   : propagated ;
+//     profiling            : off on            : propagated ;
+//     inlining             : off on full       : propagated ;
+//     threading            : single multi      : propagated ;
+//     rtti                 : on off            : propagated ;
+//     exception-handling   : on off            : propagated ;
+//     asynch-exceptions    : off on            : propagated ;
+//     extern-c-nothrow     : off on            : propagated ;
+//     debug-symbols        : on off            : propagated ;
+//     strip                : off on            : propagated ;
+//     define               :                   : free ;
+//     undef                :                   : free ;
+//     "include"            :                   : free path ; #order-sensitive ;
+//     cflags               :                   : free ;
+//     cxxflags             :                   : free ;
+//     fflags               :                   : free ;
+//     asmflags             :                   : free ;
+//     linkflags            :                   : free ;
+//     archiveflags         :                   : free ;
+//     version              :                   : free ;
+//     flags                :                   : free ;
+//     location-prefix      :                   : free ;
+//     use                  :                   : free dependency incidental ;
+//     dependency           :                   : free dependency incidental ;
+//     implicit-dependency  :                   : free dependency incidental ;
+//     warnings             : on all off        : incidental propagated ;
+//     warnings-as-errors   : off on            : incidental propagated ;
+//     c++-template-depth   : 
+//          [ numbers.range 64 1024 : 64 ]
+//          [ numbers.range 20 1000 : 10 ] 17   : incidental optional propagated ;
+//     source               :                   : free dependency incidental ;
+//     library              :                   : free dependency incidental ;
+//     file                 :                   : free dependency incidental ;
+//     find-shared-library  :                   : free ; #order-sensitive ;
+//     find-static-library  :                   : free ; #order-sensitive ;
+//     library-path         :                   : free path ; #order-sensitive ;
+//     library-file         :                   : free dependency ;
+//     name                 :                   : free ;
+//     tag                  :                   : free ;
+//     search               :                   : free path ; #order-sensitive ;
+//     location             :                   : free path ;
+//     dll-path             :                   : free path ;
+//     hardcode-dll-paths   : true false        : incidental ;
+//     xdll-path            :                   : free path ;
+//     def-file             :                   : free dependency ; 
+//     suppress-import-lib  : false true        : incidental ;
+//     action               :                   : free ;
+//     allow                :                   : free ;
+//     c++abi               :                   : propagated optional ;
+//     conditional          :                   : incidental free ;
+//     build                : yes no            : optional ;
+//     variant              :                   : implicit composite propagated symmetric ;
+//     os                   : $(os)             : propagated link-incompatible ;
+//     host-os              : 
+//          aix android bsd cygwin darwin freebsd hpux iphone linux netbsd 
+//          openbsd osf qnx qnxnto sgi solaris unix unixware windows elf ;
+//     target-os            : 
+//          aix android bsd cygwin darwin freebsd hpux iphone linux netbsd 
+//          openbsd osf qnx qnxnto sgi solaris unix unixware windows elf ;
+//                                              : propagated link-incompatible ; 
+//     address-model        : 16 32 64 32_64    : propagated optional ;
+//     architecture         : 
+//          x86 ia64 sparc power mips1 mips2 mips3 mips4 mips32 
+//          mips32r2 mips64 parisc arm combined combined-x86-power 
+//                                              : propagated optional ; 
+//     instruction-set      :
+//          native i486 i586 i686 pentium pentium-mmx pentiumpro pentium2 pentium3
+//          pentium3m pentium-m pentium4 pentium4m prescott nocona core2 corei7 corei7-avx core-avx-i
+//          conroe conroe-xe conroe-l allendale merom merom-xe kentsfield kentsfield-xe penryn wolfdale
+//          yorksfield nehalem sandy-bridge ivy-bridge haswell k6 k6-2 k6-3 athlon athlon-tbird athlon-4 athlon-xp
+//          athlon-mp k8 opteron athlon64 athlon-fx k8-sse3 opteron-sse3 athlon64-sse3 amdfam10 barcelona
+//          bdver1 bdver2 bdver3 btver1 btver2 winchip-c6 winchip2 c3 c3-2 atom
+//          v7 cypress v8 supersparc sparclite hypersparc sparclite86x f930 f934
+//          sparclet tsc701 v9 ultrasparc ultrasparc3
+//          401 403 405 405fp 440 440fp 505 601 602 603 603e 604 604e 620 630 740 7400
+//          7450 750 801 821 823 860 970 8540 power-common ec603e g3 g4 g5 power power2
+//          power3 power4 power5 powerpc powerpc64 rios rios1 rsc rios2 rs64a
+//          4kc 4kp 5kc 20kc m4k r2000 r3000 r3900 r4000 r4100 r4300 r4400 r4600 r4650
+//          r6000 r8000 rm7000 rm9000 orion sb1 vr4100 vr4111 vr4120 vr4130 vr4300
+//          vr5000 vr5400 vr5500 700 7100 7100lc 7200 7300 8000
+//          armv2 armv2a armv3 armv3m armv4 armv4t armv5 armv5t armv5te armv6 armv6j iwmmxt ep9312
+//          armv7 armv7s                        : propagated optional ;
+//     user-interface       : console gui wince native auto ;
+//
+// !! here, is not all features
+
+// --------------------------------------------------------
+// 20. Target identifiers and references
+// --------------------------------------------------------
+"target-id -> (project-id | target-name | file-name )" 
+    "| (project-id | directory-name) // target-name"
+"project-id -> path"
+"target-name -> path"
+"file-name -> path"
+"directory-name -> path"
+// Ex.:
+//     a                                    -- target in current project
+//     lib/b.cpp                            -- regular file
+//     /boost/thread                        -- project "/boost/thread"
+//     /home/ghost/build/lr_library//parser -- target in specific project
+
+"target-reference -> target-id [ "/" requested-properties ]"
+"requested-properties -> property-path"
+"property-path -> property [ "/" property-path ]" (Ex.: <toolset>gcc/<runtime-link>static )
+{
+    exe compiler : compiler.cpp libs/cmdline/<optimization>space ;
+}
+
+// --------------------------------------------------------
+// 21. Advanced
+// --------------------------------------------------------
+"Pseudocode"
+{
+# TODO more info, whats project, whats a property-set, expand, more pseudo code, consider
+    b2 -> buildsystem -> 
+
+      project-target.generate ( ps )
+      {
+        for main in main-targets
+        {
+            virtual-targets += main.generate ( ps )
+        }
+        for prj in sub-projects
+        {
+            virtual-targets += prj.generate ( ps )
+        }
+        return usage-requirements virtual-targets
+      }
+      
+      main-target.generate ( ps )
+      {
+          target = select best-alternative ( ps + default-build )
+          
+          return target.generate ( ps + default-build )
+      }
+      
+      basic-target.generate ( ps )
+      {
+          for source in sources 
+          {
+              source-targets = new file-reference ( source )
+          }
+          
+# typed-target
+          usage-requirements virtual-targets = 
+            construct ( name source-targets ( ps + requirements ) )
+          
+          return usage-requirements virtual-targets
+      }
+
+# file-reference has no dependecies at all
+      file-reference.generate ( ps )
+      {
+          return ps.empty new file-target
+      }
+      
+# typed-target inherit basic-target 
+      typed-target.construct ( name source-targets ps )
+      {
+          return generators.construct ( project name type ps source-targets )
+      }
+
+# generators module
+      generators.construct ( project name type ps source-targets )
+      {
+          viable-generator = find ( type ps ) ;
+          
+          usage-requirements virtual-targets = 
+            viable-generator.run ( project name ps source-targets )
+          
+          return usage-requirements virtual-targets ;
+      }
+      
+      generators.generator.run ( project name ps source-targets ) 
+      {
+          consumed = convert-to-consumable-types ( project name ps source-targets )
+          
+# for example: linking is composing, compiling is not composing
+          if composing
+          {
+              result += generated-targets ( consumed ps project name )
+          }
+          else
+          {
+              for c in consumed 
+              {
+                  result += generated-targets ( c ps project name )
+              }
+          }
+          
+          return result
+      }
+      
+      generators.generator.generated-targets ( sources ps project name )
+      {
+          a = new action ( sources rule ps )
+          
+          for type in target-types
+          {
+              virtual-targets += new file-target ( generated-name type project a )
+          }
+          return virtual-targets
+      }
+      
+      generators.generator.convert-to-consumable-types ( project name ps source-targets ) 
+      {
+          return generators.construct-types ( project name required-types ps source-targets )
+      }
+      
+      generators.construct-types ( project name types ps source-targets )
+      {
+# usually function is used to get suitable sources for generator
+          for type in required-types
+          {
+              result += generators.construct ( project name type ps source-targets )
+          }
+          return result
+      }
+      
+}
+
+
+
+
+
+
+
+
+
+
+
+
