@@ -1,0 +1,9 @@
+using gcc ;
+
+project : source-location src : requirements <include>include : build-dir build ;
+
+# echo [ glob *.cpp ] ;
+
+exe main : [ glob *.cpp ] ;
+
+install main-install : main : <location>bin ;
