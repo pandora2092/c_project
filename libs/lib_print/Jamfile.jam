@@ -1,0 +1,7 @@
+project lib_print : source-location src : requirements <include>include : build-dir build : usage-requirements <include>include ;
+
+# echo [ glob *.cpp ] ;
+
+lib lib_print : print.cpp : <link>shared ;
+
+# install main-install : main : <location>bin ;
